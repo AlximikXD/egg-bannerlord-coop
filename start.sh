@@ -11,6 +11,11 @@ GAME_DIR=${GAME_DIR:-}
 DATA_DIR=${DATA_DIR:-/home/container/data}
 WINEPREFIX=${WINEPREFIX:-/home/container/.wine}
 AUTO_UPDATE=${AUTO_UPDATE:-1}
+# Extra workshop item ids to load beside Coop, "X,Y,Z" or space separated.
+WORKSHOP_MODS=${WORKSHOP_MODS:-}
+# The engine's own custom-server port and region. Not the port players join on.
+ENGINE_PORT=${ENGINE_PORT:-7210}
+REGION=${REGION:-EU}
 export WINEPREFIX
 
 log()  { echo "[coop] $*"; }
@@ -27,15 +32,74 @@ set_cfg() {
   sed -i -E "s|(\"$1\"[[:space:]]*:[[:space:]]*)[^,}]*|\1$(esc "$2")|" "$cfg"
 }
 
-# wings sends its primary allocation here, and 0 when the server has none. The
-# launcher FATALs on a bad port, so check before downloading 6 GB to find out.
+# wings sends its primary allocation here, and 0 when the server has none. A bad
+# port strands the server with no way in, so check before downloading 6 GB.
 check_port() {
   # 1-65534, since the mod also uses port+1. awk compares without overflowing on a
   # long digit string, and [1-9] first means no leading zero and no need for a
   # lower-bound test.
   awk -v p="${1:-}" 'BEGIN{exit !(p ~ /^[1-9][0-9]*$/ && p+0<=65534)}' ||
-    die "SERVER_PORT=${1:-} is not a port in 1-65534. Pelican sends 0 when the
+    die "${2:-SERVER_PORT}=${1:-} is not a port in 1-65534. Pelican sends 0 when the
 server has no primary allocation: give it two consecutive free UDP ports."
+}
+
+# --- extra modules ----------------------------------------------------------
+# The engine activates only what its _MODULES_ argument names, so a mod has to be
+# downloaded, linked into Modules, and added to the list built in section 5. It
+# also needs bin/Win64_Shipping_Server; a client-only build loads no code.
+
+mod_ids() { printf '%s' "$WORKSHOP_MODS" | tr ',' ' '; }
+
+# The ids end up on a command line, so nothing but digits gets through.
+check_mod_ids() {
+  for id in $(mod_ids); do
+    awk -v i="$id" 'BEGIN{exit !(i ~ /^[0-9]+$/)}' ||
+      die "WORKSHOP_MODS contains \"$id\", which is not a workshop item id (digits only)."
+  done
+}
+
+# The declared id, not the folder name: Coop's folder declares "Coop" or "CoopNightly".
+module_id() { sed -n 's/.*<Id[[:space:]]*value="\([^"]*\)".*/\1/p' "$1" | head -1; }
+
+# stage_mods <workshop root> <modules dir> - prints the ids it staged, in order.
+stage_mods() {
+  ws=$1; dir=$2; staged=
+  for id in $(mod_ids); do
+    sub=$ws/$id/SubModule.xml
+    # Some uploads nest the module one level down.
+    [ -f "$sub" ] || sub=$(find "$ws/$id" -maxdepth 2 -name SubModule.xml 2>/dev/null | head -1)
+    if [ -z "$sub" ] || [ ! -f "$sub" ]; then
+      warn "workshop item $id has no SubModule.xml - not loaded"
+      continue
+    fi
+    mid=$(module_id "$sub")
+    if [ -z "$mid" ]; then
+      warn "workshop item $id declares no module Id - not loaded"
+      continue
+    fi
+    link=$dir/$mid
+    # Only ever replace a link of our own, never one of the shipped modules.
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+      warn "$mid is a real folder under Modules, leaving it as it is"
+    elif ! ln -sfn "$(dirname "$sub")" "$link"; then
+      warn "could not link $mid into Modules"
+      continue
+    fi
+    staged="$staged $mid"
+  done
+  printf '%s' "${staged# }"
+}
+
+# prune_mods <modules dir> <ids to keep> - drops what WORKSHOP_MODS no longer names,
+# by removing only our own links.
+prune_mods() {
+  for link in "$1"/*; do
+    [ -L "$link" ] || continue
+    case " $2 " in
+      *" $(basename "$link") "*) continue ;;
+    esac
+    rm -f "$link"
+  done
 }
 
 # `sh start.sh --self-test` checks both round trips. CI runs it.
@@ -50,10 +114,39 @@ if [ "${1:-}" = "--self-test" ]; then
     ( check_port "$bad" ) 2>/dev/null && die "self-test: check_port took [$bad]"
   done
   check_port 4200 || die "self-test: check_port rejected 4200"
+
+  for bad in abc 1x -1 12a; do
+    WORKSHOP_MODS=$bad
+    ( check_mod_ids ) 2>/dev/null && die "self-test: check_mod_ids took [$bad]"
+  done
+
+  # A nested module stages under its declared id, and unstages when dropped.
+  ws=$(mktemp -d) || exit 1
+  md=$(mktemp -d) || exit 1
+  mkdir -p "$ws/123/Inner"
+  printf '<Module>\n  <Id value="TestMod" />\n</Module>\n' > "$ws/123/Inner/SubModule.xml"
+  : > "$md/RealModule"
+  WORKSHOP_MODS=123
+  got=$(stage_mods "$ws" "$md")
+  [ "$got" = TestMod ] || die "self-test: stage_mods got [$got] want [TestMod]"
+  [ -f "$md/TestMod/SubModule.xml" ] || die "self-test: TestMod did not stage"
+  # MSYS ln -s copies, so assert prune_mods only where symlinks are real. CI is.
+  if ln -s . "$md/.probe" 2>/dev/null && [ -L "$md/.probe" ]; then
+    rm -f "$md/.probe"
+    WORKSHOP_MODS=
+    prune_mods "$md" "$(stage_mods "$ws" "$md")"
+    [ -L "$md/TestMod" ] && die "self-test: prune_mods kept a dropped mod"
+    [ -e "$md/RealModule" ] || die "self-test: prune_mods removed a real module"
+  else
+    log "self-test: no symlink support here, skipped the prune_mods check"
+  fi
+  rm -rf "$ws" "$md"
+
   echo "self-test ok"; exit 0
 fi
 
 [ -z "${SERVER_PORT:-}" ] || check_port "$SERVER_PORT"
+check_mod_ids
 
 # --- 1. game files ----------------------------------------------------------
 # steamcmd puts content under $HOME/Steam, so HOME points at STEAM_DIR; roots vary, hence the list.
@@ -70,9 +163,16 @@ resolve_game_dir() {
   return 1
 }
 
+mod_download_args() {
+  for id in $(mod_ids); do
+    printf ' +workshop_download_item %s %s' "$APP_ID" "$id"
+  done
+}
+
 run_steamcmd() {
+  # shellcheck disable=SC2046  # the ids are digits, checked by check_mod_ids
   HOME=$STEAM_DIR "$STEAM_DIR/steamcmd.sh" "$@" \
-      +workshop_download_item "$APP_ID" "$ITEM_ID" +quit
+      +workshop_download_item "$APP_ID" "$ITEM_ID" $(mod_download_args) +quit
 }
 
 update_game() {
@@ -93,6 +193,7 @@ update_game() {
   fi
 
   log "steamcmd: checking workshop item $ITEM_ID for updates"
+  [ -z "$WORKSHOP_MODS" ] || log "steamcmd: also fetching mods $WORKSHOP_MODS"
   # Cached token first: passing the password re-authenticates and pushes Guard every boot.
   # NoPromptForPassword makes that attempt fail fast instead of waiting at a password prompt.
   if [ -f "$STEAM_DIR/Steam/config/config.vdf" ]; then
@@ -121,6 +222,16 @@ log "game files: $GAME_DIR"
 
 ensure_dir "$DATA_DIR"
 
+# --- 1b. link the extra modules in ------------------------------------------
+MODULES_DIR=$GAME_DIR/engine/Modules
+[ -d "$MODULES_DIR" ] || die "no engine module folder at $MODULES_DIR"
+# .../workshop/content/$APP_ID, two levels above the DedicatedServer folder.
+WS_ROOT=$(dirname "$(dirname "$GAME_DIR")")
+
+MODS=$(stage_mods "$WS_ROOT" "$MODULES_DIR")
+prune_mods "$MODULES_DIR" "$MODS"
+[ -z "$MODS" ] || log "extra modules: $MODS"
+
 # --- 2. wine prefix ---------------------------------------------------------
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
   log "creating wine prefix at $WINEPREFIX (~2 min)"
@@ -131,7 +242,8 @@ if [ ! -f "$WINEPREFIX/system.reg" ]; then
 fi
 
 # --- 3. mod-config.json must land in the data dir ---------------------------
-# The launcher writes it to Wine's Documents; the uid has no passwd entry, so glob the user dir.
+# COOP_DATA_DIR below already points the mod here; this covers anything the engine
+# still resolves through Wine's Documents. The uid has no passwd entry, so glob.
 for docs in "$WINEPREFIX"/drive_c/users/*/Documents; do
   [ -d "$docs" ] || continue
   ensure_dir "$docs/Mount and Blade II Bannerlord"
@@ -141,7 +253,7 @@ for docs in "$WINEPREFIX"/drive_c/users/*/Documents; do
 done
 
 # --- 4. server-config.json --------------------------------------------------
-# Seeded before launch, or the launcher writes its own with port 4200.
+# Seeded before launch, or the mod writes its own with port 4200.
 cfg=$DATA_DIR/server-config.json
 
 if [ ! -f "$cfg" ]; then
@@ -163,16 +275,51 @@ else
   [ -n "${AUTOSAVE_MINUTES:-}" ]  && set_cfg autosaveMinutes "$AUTOSAVE_MINUTES"
 fi
 
+# Nothing downstream rejects a stored 0, so the file gets the panel's check too.
+check_port "$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$cfg" | head -1)" \
+           "server-config.json port"
+
+# --- 4b. first-boot world ---------------------------------------------------
+# The engine loads the configured save and will not create one, so seed it here the
+# way BannerlordCoopServer.exe did.
+save_name=$(sed -n 's/.*"saveName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$cfg" | head -1)
+[ -n "$save_name" ] || save_name=${SAVE_NAME:-saveauto1}
+ensure_dir "$DATA_DIR/Game Saves"
+if [ ! -f "$DATA_DIR/Game Saves/$save_name.sav" ]; then
+  seed="$GAME_DIR/server-data/Game Saves/default_new_game.sav"
+  [ -f "$seed" ] ||
+    die "save '$save_name' does not exist and there is no default_new_game.sav at $seed"
+  log "new world '$save_name' from default_new_game.sav"
+  cp "$seed" "$DATA_DIR/Game Saves/$save_name.sav" || die "could not seed $save_name.sav"
+fi
+
 # --- 5. go -------------------------------------------------------------------
 win_data=$(winepath -w "$DATA_DIR" 2>/dev/null)
 [ -n "$win_data" ] || die "winepath could not map $DATA_DIR to a Windows path"
-log "starting: $GAME_DIR  ->  --data-dir $win_data"
-cd "$GAME_DIR" || die "cannot enter $GAME_DIR"
 
-# The launcher only submits a command line on CR, and wings sends LF. Needs a tty,
-# which wings always allocates and compose.yaml sets.
+# This list, in this order, and nothing else. Mods go after Coop, which they depend on.
+coop_id=$(module_id "$MODULES_DIR/Coop/SubModule.xml")
+[ -n "$coop_id" ] || die "cannot read the Coop module id from $MODULES_DIR/Coop/SubModule.xml"
+token=_MODULES_
+for m in Native SandBoxCore Sandbox "$coop_id" $MODS DedicatedServer.Windows; do
+  token="$token*$m"
+done
+token="$token*_MODULES_"
+
+log "starting: $token"
+cd "$GAME_DIR/engine/bin/Win64_Shipping_Server" ||
+  die "cannot enter $GAME_DIR/engine/bin/Win64_Shipping_Server"
+
+dotnet_root=$(winepath -w "$GAME_DIR/engine/dotnet" 2>/dev/null)
+[ -n "$dotnet_root" ] || die "winepath could not map $GAME_DIR/engine/dotnet"
+# BANNERLORD_USER_DIR: server-config.json, Game Saves, logs. COOP_DATA_DIR:
+# mod-config.json. This egg keeps both in the data dir.
+export DOTNET_ROOT="$dotnet_root" DOTNET_MULTILEVEL_LOOKUP=0
+export BANNERLORD_USER_DIR="$win_data" COOP_DATA_DIR="$win_data"
+
+# A no-op for wings, which sends LF; keeps the console usable from a real terminal.
 stty inlcr 2>/dev/null || true
 
 # Xvfb is already on $DISPLAY. exec puts wine one hop from wings' stdin and signals.
-# --no-tui: on wings' tty the launcher truncates the ready line wings matches.
-exec wine BannerlordCoopServer.exe --no-tui --data-dir "$win_data" "$@"
+exec wine "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dll \
+     "$token" /dedicatedcustomserver "$ENGINE_PORT" "$REGION" 0 "$@"

@@ -58,21 +58,51 @@ host ports, change the left side of both `ports:` entries.
 | `STEAM_USERNAME` | | Account that owns Bannerlord. Required. |
 | `STEAM_PASSWORD` | | Optional. Prompted in the console if empty, which keeps it out of the panel database. |
 | `AUTO_UPDATE` | `1` | Check Steam for a newer mod build on every start. `0` boots what is already there. |
+| `WORKSHOP_MODS` | | Extra workshop item ids to load, `X,Y,Z`. See [Mods](#mods). |
 | `SAVE_NAME` | `saveauto1` | World to host. A missing save is created from `default_new_game.sav`. |
 | `SERVER_PASSWORD` | | Password players are prompted for. Empty means open. |
 | `AUTOSAVE_MINUTES` | `5` | Minutes between autosaves. `0` disables them. |
 
 `DATA_DIR`, `STEAM_DIR` and `WINEPREFIX` are internal and stay hidden in the
-panel.
+panel. `ENGINE_PORT` (`7210`) and `REGION` (`EU`) set the engine's internal
+custom-server arguments and are not the port players join on.
+
+## Mods
+
+`WORKSHOP_MODS=3010984416,3794802607` downloads those workshop items alongside
+the Coop mod and loads them. steamcmd fetches each one, `start.sh` links it into
+the server's `engine/Modules` under the id its `SubModule.xml` declares, and the
+module list handed to the engine becomes:
+
+```
+_MODULES_*Native*SandBoxCore*Sandbox*CoopNightly*<your mods>*DedicatedServer.Windows*_MODULES_
+```
+
+Mods load after the Coop module, in the order listed, which is what the
+coop-aware ones expect: they name `CoopNightly` as a dependency. Dropping an id
+unlinks that module on the next start.
+
+Three rules decide whether a mod works here:
+
+- **It must ship `bin/Win64_Shipping_Server`.** The dedicated server loads module
+  code from there, never from `Win64_Shipping_Client`. A client-only mod is
+  listed and its XML applies, but none of its code runs.
+- **Mods needing `Bannerlord.Harmony` do not work yet.** Coop bundles its own
+  MonoMod; giving Harmony a server build makes Coop's `GameInterface.dll` fail to
+  load, in either load order. [ModderLords](https://github.com/PlueRyvius/ModderLords)
+  solves this with an assembly-resolution hook, which this egg does not carry.
+- **Every player needs the identical set, at identical versions.** The server
+  compares module lists on join and refuses a client that has one the server
+  lacks, or the other way round.
 
 ## Ports
 
 Clients join on `port` in `server-config.json`, set from the primary allocation
 on every start. The mod uses that port and the one above it.
 
-`-p <n>` is not the join port. It is the engine's internal custom-server port,
-default 7210, so pointing it at your allocation gives a server that boots and
-never connects.
+`ENGINE_PORT` is not the join port. It is the engine's internal custom-server
+port, default 7210, so pointing it at your allocation gives a server that boots
+and never connects.
 
 ## Console and stopping
 
@@ -81,8 +111,8 @@ Commands are read from stdin, so they work in the panel console: `status`,
 and `coop.*` commands. The server prints its own list as an
 `@DS@{"ev":"commands"}` line on boot.
 
-Commands need a tty, since the launcher only submits a line on carriage return
-and `start.sh` has the tty translate the newline wings sends.
+`start.sh` still has the tty translate carriage returns, so the console also
+works from a real terminal, which submits a line on CR.
 
 `stop` writes a shutdown save and exits cleanly, and is what the egg sends. After
 a kill instead, the last autosave is the recovery point and two dated backups
@@ -93,16 +123,20 @@ Everything persistent lives in the server volume:
 | Path | Contents |
 | --- | --- |
 | `data/Game Saves` | Worlds and dated backups. |
-| `data/logs` | One log per boot. |
+| `data/logs` | `Coop_server.log`, written by the mod. Console output also goes to the panel. |
 | `data/server-config.json` | Port, save name, password, autosave. Re-applied from the panel on every start. |
-| `data/mod-config.json` | Mod settings, written by the launcher. |
+| `data/mod-config.json` | Mod settings, written by the mod on first boot. |
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
 | `SERVER_PORT=0 is not in 1-65534` | The server has no primary allocation. Give it two consecutive free UDP ports. |
-| `FATAL: server-config.json 'port' must be 1-65535` | The stored config holds `"port": 0`. Assign a primary allocation, the next start rewrites it. |
+| `server-config.json port=0 is not a port in 1-65534` | The stored config holds `"port": 0`. Assign a primary allocation, the next start rewrites it. |
+| `workshop item N has no SubModule.xml` | The id is not a Bannerlord module, or steamcmd could not fetch it. Check the id and the console for steamcmd errors. |
+| A mod is listed on boot but does nothing | It ships no `bin/Win64_Shipping_Server`, so none of its code loads. See [Mods](#mods). |
+| `Cannot load: GameInterface.dll` | A mod is supplying its own Harmony or MonoMod. Remove it from `WORKSHOP_MODS`. |
+| Players are refused with `Server does not support module 'X'` | Their module list differs from the server's. Line up `WORKSHOP_MODS` with what they have. |
 | Typed commands do nothing | The container has no tty. wings always allocates one, compose needs `tty: true`. |
 | Steam Guard on every start | The cached token is not persisting. `STEAM_DIR` must be on the server volume, and the volume must survive a restart. |
 | `no game files found and Steam could not be used` | Steam is unreachable and the volume is empty. Set `STEAM_USERNAME`, or point `GAME_DIR` at an existing copy with `AUTO_UPDATE=0`. |
@@ -112,14 +146,23 @@ Everything persistent lives in the server volume:
 ```
 tini -g --                          from the yolk: reaps orphans, signals the group
 /entrypoint.sh                      from the yolk: Xvfb on :0, stty 250, evals $STARTUP
-/usr/local/bin/start.sh             steamcmd, Wine prefix, server-config.json
-exec wine BannerlordCoopServer.exe
+/usr/local/bin/start.sh             steamcmd, modules, Wine prefix, server-config.json
+exec wine engine/dotnet/dotnet.exe TaleWorlds.Starter.DotNetCore.dll \
+          "_MODULES_*...*_MODULES_" /dedicatedcustomserver 7210 EU 0
 ```
 
 The image adds no `ENTRYPOINT` and no `CMD`, it keeps the yolk's. wings passes
 the panel's Startup Command as `$STARTUP` and the yolk entrypoint is what
 evaluates it, so that panel field stays live. `exec` keeps the game one hop from
 wings' stdin, which is how console commands reach it.
+
+`BannerlordCoopServer.exe` is shipped with the workshop item but not used: it
+hardcodes its module list to the five it ships with, so extra mods can only be
+loaded by starting the engine the same way it does. What it also did, `start.sh`
+now does: seeding `server-config.json`, checking the port, and creating the
+first world from `default_new_game.sav`. The mod still verifies its own
+assemblies against the release pins at boot, and `data/Game Saves` keeps the same
+backup generations.
 
 ## Development
 

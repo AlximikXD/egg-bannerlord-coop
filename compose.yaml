@@ -8,6 +8,7 @@ services:
       STEAM_USERNAME: ${STEAM_USERNAME:-}
       STEAM_PASSWORD: ${STEAM_PASSWORD:-}
       AUTO_UPDATE: ${AUTO_UPDATE:-1}  # 0 = never contact Steam, use what is there
+      WORKSHOP_MODS: ${WORKSHOP_MODS:-}  # extra workshop item ids, "X,Y,Z"
       SAVE_NAME: ${SAVE_NAME:-saveauto1}
       SERVER_PASSWORD: ${SERVER_PASSWORD:-}
       AUTOSAVE_MINUTES: ${AUTOSAVE_MINUTES:-5}

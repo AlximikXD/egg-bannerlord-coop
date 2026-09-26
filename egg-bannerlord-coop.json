@@ -64,6 +64,16 @@
             "field_type": "text"
         },
         {
+            "name": "Extra workshop mods",
+            "description": "Steam Workshop item IDs to load beside the Coop mod, comma separated. Each mod must ship a Win64_Shipping_Server build, every player needs the same mods at the same versions or their join is refused, and mods that need Bannerlord.Harmony do not work yet. They are loaded after the Coop module, in the order listed.",
+            "env_variable": "WORKSHOP_MODS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:512",
+            "field_type": "text"
+        },
+        {
             "name": "Save name",
             "description": "World to host, from Game Saves in the data directory. A missing save is created from default_new_game.sav.",
             "env_variable": "SAVE_NAME",
