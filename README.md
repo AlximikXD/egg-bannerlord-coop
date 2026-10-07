@@ -144,9 +144,10 @@ and `coop.*` commands. The server prints its own list as an
 `start.sh` still has the tty translate carriage returns, so the console also
 works from a real terminal, which submits a line on CR.
 
-`stop` writes a shutdown save and exits cleanly, and is what the egg sends. After
-a kill instead, the last autosave is the recovery point and two dated backups
-are kept.
+`stop` writes a shutdown save and exits cleanly, and is what the egg sends. The
+launcher also stops the player-count API process when the game exits, allowing
+Wings to mark the container offline. After a kill instead, the last autosave
+is the recovery point and two dated backups are kept.
 
 Everything persistent lives in the server volume:
 

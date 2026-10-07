@@ -361,4 +361,12 @@ for arg in "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dl
   server_command="$server_command $(quote_arg "$arg")"
 done
 
-exec script --quiet --flush --return --command "$server_command" "$PLAYER_COUNT_LOG"
+# The API is a background process; stop and reap it when the server exits so it
+# cannot keep Wings from marking the container offline after a normal stop.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'kill "$player_count_pid" 2>/dev/null || true; wait "$player_count_pid" 2>/dev/null || true' EXIT
+
+script --quiet --flush --return --command "$server_command" "$PLAYER_COUNT_LOG" <&0
+server_status=$?
+exit "$server_status"
