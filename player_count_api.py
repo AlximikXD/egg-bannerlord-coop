@@ -41,7 +41,7 @@ def player_count_from_lines(lines):
 
 class PlayerCountReader:
     def __init__(self, data_dir):
-        self.log_path = Path(data_dir) / "logs" / "Coop_server.log"
+        self.log_path = Path(data_dir) / "logs" / "player-count-console.log"
         self.lock = threading.Lock()
         self.offset = 0
         self.identity = None

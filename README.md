@@ -77,8 +77,9 @@ custom-server arguments and are not the port players join on.
 ## Player-count API
 
 The container serves `GET /player-count` over HTTP, default TCP port `4202`.
-It reads the latest structured `@DS@` players snapshot from the Coop server log
-and returns only the count:
+The launcher captures the server console in
+`data/logs/player-count-console.log`; the API reads its latest structured
+`@DS@` players snapshot and returns only the count:
 
 ```json
 {"numPlayers":2,"maxPlayers":null}

@@ -49,12 +49,12 @@ class PlayerCountTests(unittest.TestCase):
     def test_returns_unavailable_until_startup_event(self):
         self.assertIsNone(player_count_from_lines(["server starting"]))
 
-    def test_reads_new_events_from_coop_server_log(self):
+    def test_reads_new_events_from_captured_server_console(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_dir = Path(tmp) / "logs"
             log_dir.mkdir()
             reader = PlayerCountReader(tmp)
-            log_path = log_dir / "Coop_server.log"
+            log_path = log_dir / "player-count-console.log"
             log_path.write_text(
                 '@DS@{"ev":"commands","list":["players"]}\n'
                 '@DS@{"ev":"players","list":[{"id":1},{"id":2}]}\n',
@@ -66,7 +66,7 @@ class PlayerCountTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log_dir = Path(tmp) / "logs"
             log_dir.mkdir()
-            log_path = log_dir / "Coop_server.log"
+            log_path = log_dir / "player-count-console.log"
             log_path.write_text(
                 '@DS@{"ev":"commands","list":[]}\n'
                 '@DS@{"ev":"players","list":[{"id":1}]}\n',
@@ -84,7 +84,7 @@ class PlayerCountTests(unittest.TestCase):
             log_dir = Path(tmp) / "logs"
             log_dir.mkdir()
             reader = PlayerCountReader(tmp)
-            log_path = log_dir / "Coop_server.log"
+            log_path = log_dir / "player-count-console.log"
             log_path.write_text(
                 '@DS@{"ev":"commands","list":[]}\n'
                 '@DS@{"ev":"players","list":[{"id":1},{"id":2}]}\n',

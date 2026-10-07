@@ -317,8 +317,13 @@ dotnet_root=$(winepath -w "$GAME_DIR/engine/dotnet" 2>/dev/null)
 export DOTNET_ROOT="$dotnet_root" DOTNET_MULTILEVEL_LOOKUP=0
 export BANNERLORD_USER_DIR="$win_data" COOP_DATA_DIR="$win_data"
 
-# Serve the latest structured player snapshot from the mod's log. It starts
-# before the game so the endpoint is ready as soon as the server boots.
+# The structured @DS@ events appear on the server console, but not necessarily
+# in Coop_server.log. Capture stdout/stderr separately for the API reader.
+PLAYER_COUNT_LOG="$DATA_DIR/logs/player-count-console.log"
+ensure_dir "$DATA_DIR/logs"
+
+# Serve the latest captured player snapshot. Start before the game so the API
+# is ready as soon as the server boots.
 python3 /usr/local/bin/player_count_api.py &
 player_count_pid=$!
 player_count_ready=
@@ -342,6 +347,8 @@ fi
 # A no-op for wings, which sends LF; keeps the console usable from a real terminal.
 stty inlcr 2>/dev/null || true
 
-# Xvfb is already on $DISPLAY. exec puts wine one hop from wings' stdin and signals.
-exec wine "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dll \
-     "$token" /dedicatedcustomserver "$ENGINE_PORT" "$REGION" 0 "$@"
+# Xvfb is already on $DISPLAY. The pipeline preserves stdin for Wings console
+# commands and echoes server output while recording it for the player-count API.
+wine "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dll \
+     "$token" /dedicatedcustomserver "$ENGINE_PORT" "$REGION" 0 "$@" \
+     2>&1 | tee -a "$PLAYER_COUNT_LOG"
