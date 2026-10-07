@@ -8,7 +8,7 @@ ENV WINEARCH=win64 LANG=C.UTF-8
 
 # The read-only player-count endpoint uses Python's standard library.
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends python3 && \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 util-linux && \
     rm -rf /var/lib/apt/lists/*
 
 # Smoke test in a throwaway prefix: the real one is per-server in the volume.

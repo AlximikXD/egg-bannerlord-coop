@@ -347,8 +347,18 @@ fi
 # A no-op for wings, which sends LF; keeps the console usable from a real terminal.
 stty inlcr 2>/dev/null || true
 
-# Xvfb is already on $DISPLAY. The pipeline preserves stdin for Wings console
-# commands and echoes server output while recording it for the player-count API.
-wine "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dll \
-     "$token" /dedicatedcustomserver "$ENGINE_PORT" "$REGION" 0 "$@" \
-     2>&1 | tee -a "$PLAYER_COUNT_LOG"
+# The game expects a terminal on stdout. `script` gives it a PTY, forwards
+# console input/output to Wings, and records the same output for the API reader.
+quote_arg() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+server_command=wine
+for arg in "$GAME_DIR/engine/dotnet/dotnet.exe" TaleWorlds.Starter.DotNetCore.dll \
+           "$token" /dedicatedcustomserver "$ENGINE_PORT" "$REGION" 0 "$@"; do
+  server_command="$server_command $(quote_arg "$arg")"
+done
+
+exec script --quiet --flush --return --command "$server_command" "$PLAYER_COUNT_LOG"

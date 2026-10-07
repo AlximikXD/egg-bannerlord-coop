@@ -77,8 +77,9 @@ custom-server arguments and are not the port players join on.
 ## Player-count API
 
 The container serves `GET /player-count` over HTTP, default TCP port `4202`.
-The launcher captures the server console in
-`data/logs/player-count-console.log`; the API reads its latest structured
+The launcher keeps the game connected to a pseudo-terminal so Pelican's console
+continues to work, while also capturing output in
+`data/logs/player-count-console.log`. The API reads its latest structured
 `@DS@` players snapshot and returns only the count:
 
 ```json
