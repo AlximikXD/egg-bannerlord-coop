@@ -14,7 +14,7 @@
     ],
     "features": null,
     "docker_images": {
-        "Bannerlord Coop (Wine)": "ghcr.io/geofmigliacci/bannerlord-coop:latest",
+        "Bannerlord Coop (Wine)": "ghcr.io/alximikxd/bannerlord-coop:latest",
         "Local build, no pull": "~bannerlord-coop:latest"
     },
     "file_denylist": [],
