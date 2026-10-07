@@ -317,6 +317,28 @@ dotnet_root=$(winepath -w "$GAME_DIR/engine/dotnet" 2>/dev/null)
 export DOTNET_ROOT="$dotnet_root" DOTNET_MULTILEVEL_LOOKUP=0
 export BANNERLORD_USER_DIR="$win_data" COOP_DATA_DIR="$win_data"
 
+# Serve the latest structured player snapshot from the mod's log. It starts
+# before the game so the endpoint is ready as soon as the server boots.
+python3 /usr/local/bin/player_count_api.py &
+player_count_pid=$!
+player_count_ready=
+for _ in 1 2 3 4 5; do
+  if python3 -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1).close()' \
+      "${PLAYER_COUNT_PORT:-4202}" >/dev/null 2>&1; then
+    player_count_ready=1
+    break
+  fi
+  if ! kill -0 "$player_count_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+if [ -z "$player_count_ready" ]; then
+  kill "$player_count_pid" 2>/dev/null || true
+  wait "$player_count_pid" 2>/dev/null || true
+  die "player-count endpoint failed to start"
+fi
+
 # A no-op for wings, which sends LF; keeps the console usable from a real terminal.
 stty inlcr 2>/dev/null || true
 

@@ -12,6 +12,9 @@ services:
       SAVE_NAME: ${SAVE_NAME:-saveauto1}
       SERVER_PASSWORD: ${SERVER_PASSWORD:-}
       AUTOSAVE_MINUTES: ${AUTOSAVE_MINUTES:-5}
+      PLAYER_COUNT_HOST: ${PLAYER_COUNT_HOST:-0.0.0.0}
+      PLAYER_COUNT_PORT: ${PLAYER_COUNT_PORT:-4202}
+      PLAYER_COUNT_TOKEN: ${PLAYER_COUNT_TOKEN:-}
     # Pelican's layout, plus a bind so saves stay editable from the host.
     volumes:
       - container:/home/container
@@ -20,6 +23,7 @@ services:
     ports:
       - "4200:4200/udp"
       - "4201:4201/udp"
+      - "${PLAYER_COUNT_PORT:-4202}:${PLAYER_COUNT_PORT:-4202}/tcp"
     stdin_open: true  # required: `stop`, `save` and `kick` are read from stdin
     tty: true         # required: `stty inlcr` in start.sh needs one
     stop_grace_period: 60s

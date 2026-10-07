@@ -3,9 +3,9 @@ name: image
 on:
   push:
     branches: [main]
-    paths: ['Dockerfile', 'start.sh', '.github/workflows/image.yml']
+    paths: ['Dockerfile', 'start.sh', 'player_count_api.py', 'tests/**', '.github/workflows/image.yml']
   pull_request:
-    paths: ['Dockerfile', 'start.sh', '.github/workflows/image.yml']
+    paths: ['Dockerfile', 'start.sh', 'player_count_api.py', 'tests/**', '.github/workflows/image.yml']
   workflow_dispatch:
 
 jobs:
@@ -20,6 +20,7 @@ jobs:
       # Preinstalled on the runner image, so no action dependency.
       - run: shellcheck start.sh
       - run: sh start.sh --self-test
+      - run: python3 -m unittest discover -s tests -v
 
       # GHCR rejects uppercase in the image path; GitHub usernames allow it.
       - id: owner

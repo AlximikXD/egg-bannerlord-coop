@@ -104,6 +104,36 @@
             "field_type": "text"
         },
         {
+            "name": "Player count API host",
+            "description": "Address the read-only player-count endpoint binds to. Use 0.0.0.0 to allow remote bot access.",
+            "env_variable": "PLAYER_COUNT_HOST",
+            "default_value": "0.0.0.0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:64",
+            "field_type": "text"
+        },
+        {
+            "name": "Player count API port",
+            "description": "TCP port for the read-only player-count endpoint. Allocate this TCP port on the server.",
+            "env_variable": "PLAYER_COUNT_PORT",
+            "default_value": "4202",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "Player count API token",
+            "description": "Optional bearer token required by the read-only player-count endpoint. Set this when the endpoint is reachable outside a trusted network.",
+            "env_variable": "PLAYER_COUNT_TOKEN",
+            "default_value": "",
+            "user_viewable": false,
+            "user_editable": true,
+            "rules": "nullable|string|max:256",
+            "field_type": "text"
+        },
+        {
             "name": "Data directory",
             "description": "Where saves, configs, logs and backups live. Internal.",
             "env_variable": "DATA_DIR",

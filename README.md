@@ -13,6 +13,7 @@ the server volume on boot, so every operator fetches their own entitled copy.
 | [`egg-bannerlord-coop.json`](egg-bannerlord-coop.json) | The egg. Import this in the panel. |
 | [`Dockerfile`](Dockerfile) | The yolk, built on the official Pelican wine yolk. |
 | [`start.sh`](start.sh) | Boot script: steamcmd, Wine prefix, server config, launch. |
+| [`player_count_api.py`](player_count_api.py) | Read-only HTTP API for the current player count. |
 | [`compose.yaml`](compose.yaml) | Runs the same image with no panel. |
 
 Published image `ghcr.io/geofmigliacci/bannerlord-coop:latest`, also tagged per
@@ -24,13 +25,15 @@ commit sha. amd64 only.
   anonymous workshop downloads, so there is no credential-free path.
 - Two consecutive UDP allocations. Clients join on the first, the mod also uses
   the second.
+- One TCP allocation for the player-count API (default port `4202`).
 - About 9 GB of disk: ~6 GB of game files plus a 1.6 GB Wine prefix, both built
   on first boot.
 
 ## Install on Pelican
 
 1. Admin, Eggs, Import Egg: upload `egg-bannerlord-coop.json`.
-2. Create a server on it with two consecutive UDP allocations.
+2. Create a server with two consecutive UDP allocations and a TCP allocation on
+   port `4202` (or the configured `PLAYER_COUNT_PORT`).
 3. Set **Steam username**. Leave **Steam password** empty.
 4. Start it and watch the console. steamcmd asks for the password, then Steam
    Guard. A mobile authenticator is a push to approve, email codes are typed in.
@@ -48,8 +51,9 @@ docker compose up      # approve the Steam Guard push on your phone
 `STEAM_PASSWORD` the first run needs `docker compose run --rm coop`, so the
 prompt reaches your terminal.
 
-`compose.yaml` also sets `STARTUP`, which a panel would send itself. For other
-host ports, change the left side of both `ports:` entries.
+`compose.yaml` also sets `STARTUP`, which a panel would send itself. To change
+the game UDP host ports, edit the left side of those port mappings. Set
+`PLAYER_COUNT_PORT` to change the HTTP API port.
 
 ## Variables
 
@@ -62,10 +66,34 @@ host ports, change the left side of both `ports:` entries.
 | `SAVE_NAME` | `saveauto1` | World to host. A missing save is created from `default_new_game.sav`. |
 | `SERVER_PASSWORD` | | Password players are prompted for. Empty means open. |
 | `AUTOSAVE_MINUTES` | `5` | Minutes between autosaves. `0` disables them. |
+| `PLAYER_COUNT_HOST` | `0.0.0.0` | Interface for the read-only player-count API. |
+| `PLAYER_COUNT_PORT` | `4202` | TCP port for the read-only player-count API. |
+| `PLAYER_COUNT_TOKEN` | | Optional bearer token for the player-count API. |
 
 `DATA_DIR`, `STEAM_DIR` and `WINEPREFIX` are internal and stay hidden in the
 panel. `ENGINE_PORT` (`7210`) and `REGION` (`EU`) set the engine's internal
 custom-server arguments and are not the port players join on.
+
+## Player-count API
+
+The container serves `GET /player-count` over HTTP, default TCP port `4202`.
+It reads the latest structured `@DS@` players snapshot from the Coop server log
+and returns only the count:
+
+```json
+{"numPlayers":2,"maxPlayers":null}
+```
+
+If the current server session has not emitted its startup/player snapshot yet,
+the endpoint returns HTTP `503` instead of reporting a false zero. The endpoint
+listens on `PLAYER_COUNT_HOST` (`0.0.0.0` by default). In Pelican, allocate the
+configured `PLAYER_COUNT_PORT` as a **TCP** port. With Compose, the port is
+published by default; change `PLAYER_COUNT_PORT` in `.env` to choose another.
+
+The Discord bot can query `http://<server-host>:4202/player-count`. Set
+`PLAYER_COUNT_TOKEN` to require a bearer token; requests without it receive
+HTTP `401`. The token is sent over plain HTTP, so keep this port on a trusted
+network or put it behind a TLS proxy.
 
 ## Mods
 
